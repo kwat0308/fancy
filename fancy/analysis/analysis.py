@@ -12,7 +12,6 @@ import os
 from ..interfaces.integration import ExposureIntegralTable
 from ..interfaces.stan import Direction, convert_scale, coord_to_uv, uv_to_coord
 from ..interfaces.data import Uhecr
-from ..interfaces.utils import get_nucleartable
 
 from ..plotting import AllSkyMap
 from ..propagation.proton_energy_loss import ProtonApproxEnergyLoss
@@ -106,13 +105,11 @@ class Analysis:
 
             # find lower energy threshold for the simulation, given Eth and Eerr
             self.model.Eth_sim = self.energy_loss.get_Eth_sim(
-                self.data.detector.energy_uncertainty, self.model.Eth
-            )
+                self.data.detector.energy_uncertainty, self.model.Eth)
 
             # find correspsonding Eth_src
             self.Eth_src = self.energy_loss.get_Eth_src(
-                self.model.Eth_sim, self.data.source.distance
-            )
+                self.model.Eth_sim, self.data.source.distance)
 
         # Set up integral tables
         params = self.data.detector.params
@@ -120,11 +117,23 @@ class Analysis:
         self.tables = ExposureIntegralTable(varpi=varpi, params=params)
 
         # table containing (A, Z) of each element
-        self.nuc_table = get_nucleartable()
+        self.nuc_table = {
+            "p": (1, 1),
+            "H": (1, 1),
+            "He": (4, 2),
+            "Li": (7, 3),
+            "C": (12, 6),
+            "N": (14, 7),
+            "O": (16, 8),
+            "Si": (28, 14),
+            "Fe": (56, 26),
+        }
 
-    def build_tables(
-        self, num_points=50, sim_only=False, fit_only=False, parallel=True
-    ):
+    def build_tables(self,
+                     num_points=50,
+                     sim_only=False,
+                     fit_only=False,
+                     parallel=True):
         """
         Build the necessary integral tables.
         """
@@ -132,57 +141,56 @@ class Analysis:
         if sim_only:
 
             # kappa_true table for simulation
-            if (
-                self.analysis_type == self.arr_dir_type
-                or self.analysis_type == self.E_loss_type
-            ):
+            if (self.analysis_type == self.arr_dir_type
+                    or self.analysis_type == self.E_loss_type):
                 kappa_true = self.model.kappa
                 D_src = self.data.source.distance
 
             if self.analysis_type == self.joint_type:
                 D_src = self.data.source.distance
-                self.Eex = self.energy_loss.get_Eex(self.Eth_src, self.model.alpha)
+                self.Eex = self.energy_loss.get_Eex(self.Eth_src,
+                                                    self.model.alpha)
                 self.kappa_ex = self.energy_loss.get_kappa_ex(
-                    self.Eex, self.model.B, D_src
-                )
+                    self.Eex, self.model.B, D_src)
                 kappa_true = self.kappa_ex
 
             if self.analysis_type == self.gmf_type:
                 # shift by 0.02 to get kappa_ex at g.b.
                 D_src = self.data.source.distance - 0.02
-                self.Eex = self.energy_loss.get_Eex(self.Eth_src, self.model.alpha)
+                self.Eex = self.energy_loss.get_Eex(self.Eth_src,
+                                                    self.model.alpha)
 
                 self.kappa_ex = self.energy_loss.get_kappa_ex(
-                    self.Eex, self.model.B, D_src
-                )
+                    self.Eex, self.model.B, D_src)
                 kappa_true = self.kappa_ex
 
                 # evaluate for kappa_d
 
             if parallel:
-                self.tables.build_for_sim_parallel(
-                    kappa_true, self.model.alpha, self.model.B, D_src
-                )
+                self.tables.build_for_sim_parallel(kappa_true,
+                                                   self.model.alpha,
+                                                   self.model.B, D_src)
             else:
-                self.tables.build_for_sim(
-                    kappa_true, self.model.alpha, self.model.B, D_src
-                )
+                self.tables.build_for_sim(kappa_true, self.model.alpha,
+                                          self.model.B, D_src)
 
         if fit_only:
 
             # logarithmically spcaed array with 60% of points between KAPPA_MIN and 100
-            kappa_first = np.logspace(
-                np.log(1), np.log(10), int(num_points * 0.7), base=np.e
-            )
-            kappa_second = np.logspace(
-                np.log(10), np.log(100), int(num_points * 0.2) + 1, base=np.e
-            )
-            kappa_third = np.logspace(
-                np.log(100), np.log(1000), int(num_points * 0.1) + 1, base=np.e
-            )
+            kappa_first = np.logspace(np.log(1),
+                                      np.log(10),
+                                      int(num_points * 0.7),
+                                      base=np.e)
+            kappa_second = np.logspace(np.log(10),
+                                       np.log(100),
+                                       int(num_points * 0.2) + 1,
+                                       base=np.e)
+            kappa_third = np.logspace(np.log(100),
+                                      np.log(1000),
+                                      int(num_points * 0.1) + 1,
+                                      base=np.e)
             kappa = np.concatenate(
-                (kappa_first, kappa_second[1:], kappa_third[1:]), axis=0
-            )
+                (kappa_first, kappa_second[1:], kappa_third[1:]), axis=0)
 
             # full table for fit
             if parallel:
@@ -200,34 +208,36 @@ class Analysis:
         Build the energy interpolation tables.
         """
 
-        self.E_grid = np.logspace(
-            np.log(self.model.Eth), np.log(1.0e4), num_points, base=np.e
-        )
+        self.E_grid = np.logspace(np.log(self.model.Eth),
+                                  np.log(1.0e4),
+                                  num_points,
+                                  base=np.e)
         self.Earr_grid = []
 
-        if parallel and not isinstance(self.energy_loss, CRPropaApproxEnergyLoss):
+        if parallel and not isinstance(self.energy_loss,
+                                       CRPropaApproxEnergyLoss):
 
             args_list = [(self.E_grid, d) for d in self.data.source.distance]
             # parallelize for each source distance
             with Pool(self.nthreads) as mpool:
                 results = list(
                     progress_bar(
-                        mpool.imap(self.energy_loss.get_arrival_energy_vec, args_list),
+                        mpool.imap(self.energy_loss.get_arrival_energy_vec,
+                                   args_list),
                         total=len(args_list),
                         desc="Precomputing energy grids",
-                    )
-                )
+                    ))
 
                 self.Earr_grid = results
 
         else:
-            for i in progress_bar(
-                range(len(self.data.source.distance)), desc="Precomputing energy grids"
-            ):
+            for i in progress_bar(range(len(self.data.source.distance)),
+                                  desc="Precomputing energy grids"):
                 d = self.data.source.distance[i]
-                self.Earr_grid.append(
-                    [self.energy_loss.get_arrival_energy(e, d)[0] for e in self.E_grid]
-                )
+                self.Earr_grid.append([
+                    self.energy_loss.get_arrival_energy(e, d)[0]
+                    for e in self.E_grid
+                ])
 
         if table_file:
             with h5py.File(table_file, "r+") as f:
@@ -292,7 +302,8 @@ class Analysis:
                 else:
                     t = time[-1] + dt
                 tdy = Time(t, format="decimalyear")
-                za = self._get_zenith_angle(d, self.data.detector.location, tdy)
+                za = self._get_zenith_angle(d, self.data.detector.location,
+                                            tdy)
 
                 i += 1
                 if i > 100:
@@ -334,11 +345,9 @@ class Analysis:
         F0 = self.model.F0
         D, alpha_T, eps, F0, L = convert_scale(D, alpha_T, eps, F0, L)
 
-        if (
-            self.analysis_type == self.joint_type
-            or self.analysis_type == self.E_loss_type
-            or self.analysis_type == self.gmf_type
-        ):
+        if (self.analysis_type == self.joint_type
+                or self.analysis_type == self.E_loss_type
+                or self.analysis_type == self.gmf_type):
             # find lower energy threshold for the simulation, given Eth and Eerr
             if Eth_sim:
                 self.model.Eth_sim = Eth_sim
@@ -361,10 +370,8 @@ class Analysis:
         self.simulation_input["F0"] = F0
         self.simulation_input["distance"] = self.data.source.distance
 
-        if (
-            self.analysis_type == self.arr_dir_type
-            or self.analysis_type == self.E_loss_type
-        ):
+        if (self.analysis_type == self.arr_dir_type
+                or self.analysis_type == self.E_loss_type):
 
             self.simulation_input["kappa"] = self.model.kappa
 
@@ -372,14 +379,16 @@ class Analysis:
 
             self.simulation_input["alpha"] = self.model.alpha
             self.simulation_input["Eth"] = self.model.Eth_sim
-            self.simulation_input["Eerr"] = self.data.detector.energy_uncertainty
+            self.simulation_input[
+                "Eerr"] = self.data.detector.energy_uncertainty
 
         if self.analysis_type == self.joint_type or self.analysis_type == self.gmf_type:
 
             self.simulation_input["B"] = self.model.B
             self.simulation_input["alpha"] = self.model.alpha
             self.simulation_input["Eth"] = self.model.Eth_sim
-            self.simulation_input["Eerr"] = self.data.detector.energy_uncertainty
+            self.simulation_input[
+                "Eerr"] = self.data.detector.energy_uncertainty
 
             # get particle type we intialize simulation with
             _, Z = self.nuc_table[self.model.ptype]
@@ -408,30 +417,32 @@ class Analysis:
 
         self.Nex_sim = self.simulation.stan_variable("Nex_sim")[0]
         # source_labels: to which source label each UHECR is associated with
-        self.source_labels = (self.simulation.stan_variable("lambda")[0]).astype(int)
+        self.source_labels = (
+            self.simulation.stan_variable("lambda")[0]).astype(int)
 
         if self.analysis_type == self.arr_dir_type:
-            arrival_direction = self.simulation.stan_variable("arrival_direction")[0]
+            arrival_direction = self.simulation.stan_variable(
+                "arrival_direction")[0]
 
-        elif (
-            self.analysis_type == self.joint_type
-            or self.analysis_type == self.E_loss_type
-            or self.analysis_type == self.gmf_type
-        ):
+        elif (self.analysis_type == self.joint_type
+              or self.analysis_type == self.E_loss_type
+              or self.analysis_type == self.gmf_type):
 
-            self.Earr = self.simulation.stan_variable("Earr")[0]  # arrival energy
-            self.E = self.simulation.stan_variable("E")[0]  # sampled from spectrum
+            self.Earr = self.simulation.stan_variable("Earr")[
+                0]  # arrival energy
+            self.E = self.simulation.stan_variable("E")[
+                0]  # sampled from spectrum
 
             # simulate with deflections with GMF
             if self.analysis_type == self.gmf_type:
                 kappas = self.simulation.stan_variable("kappa")[0]
                 print("Simulating deflections...")
-                arrival_direction, self.Edet = self._simulate_deflections(kappas)
+                arrival_direction, self.Edet = self._simulate_deflections(
+                    kappas)
 
             else:
-                arrival_direction = self.simulation.stan_variable("arrival_direction")[
-                    0
-                ]
+                arrival_direction = self.simulation.stan_variable(
+                    "arrival_direction")[0]
 
                 self.Edet = self.simulation.stan_variable("Edet")[0]
 
@@ -447,7 +458,8 @@ class Analysis:
 
         # simulate the zenith angles
         print("Simulating zenith angles...")
-        self.zenith_angles = self._simulate_zenith_angles(self.data.detector.start_year)
+        self.zenith_angles = self._simulate_zenith_angles(
+            self.data.detector.start_year)
 
         # Make uhecr object
         uhecr_properties = {}
@@ -459,9 +471,8 @@ class Analysis:
         uhecr_properties["A"] = np.tile(self.data.detector.area, self.N)
         # uhecr_properties['source_labels'] = self.source_labels
 
-        uhecr_properties["ptype"] = (
-            self.model.ptype if self.analysis_type == self.gmf_type else "p"
-        )
+        uhecr_properties["ptype"] = (self.model.ptype if self.analysis_type
+                                     == self.gmf_type else "p")
 
         new_uhecr = Uhecr()
         new_uhecr.from_simulation(uhecr_properties)
@@ -474,17 +485,16 @@ class Analysis:
                 omega_defl_kappa_gmf,
                 omega_rand_kappa_gmf,
                 _,
-            ) = new_uhecr.eval_kappa_gmf(
-                particle_type=new_uhecr.ptype, Nrand=100, gmf="JF12", plot=False
-            )
+            ) = new_uhecr.eval_kappa_gmf(particle_type=new_uhecr.ptype,
+                                         Nrand=100,
+                                         gmf="JF12",
+                                         plot=False)
 
-            self.defl_plotvars.update(
-                {
-                    "omega_rand_kappa_gmf": omega_rand_kappa_gmf,
-                    "omega_defl_kappa_gmf": omega_defl_kappa_gmf,
-                    "kappa_gmf": new_uhecr.kappa_gmf,
-                }
-            )
+            self.defl_plotvars.update({
+                "omega_rand_kappa_gmf": omega_rand_kappa_gmf,
+                "omega_defl_kappa_gmf": omega_defl_kappa_gmf,
+                "kappa_gmf": new_uhecr.kappa_gmf,
+            })
 
         self.data.uhecr = new_uhecr
 
@@ -515,17 +525,18 @@ class Analysis:
 
         if not crpropa:
 
-            raise ImportError("CRPropa3 must be installed to use this functionality")
+            raise ImportError(
+                "CRPropa3 must be installed to use this functionality")
 
         N_uhecr = len(kappas)  # number of UHECRS at gal. boundary
         self.defl_plotvars = (
-            {}
-        )  # container for plotting variables for deflection simulations
+            {})  # container for plotting variables for deflection simulations
 
         # sample from vMF distribution with obtained kappas to get
         # coordinates at boundary
         omega_gb, src_indices, bg_indices = self._sample_at_gb(kappas, Nrand)
-        coords_gb = np.array([uv_to_coord(omega_gb_i) for omega_gb_i in omega_gb])
+        coords_gb = np.array(
+            [uv_to_coord(omega_gb_i) for omega_gb_i in omega_gb])
 
         # apply magnetic lensing to get energies and coordinates at Earth
         # path to lens is by default "./JF12full_Gamale/lens.cfg", but can be set to anywhere
@@ -547,15 +558,14 @@ class Analysis:
         # limit using detector exposure
         # energies needed since those will also be truncated by rejected UHECRs
         omega_det_exp_limited, energies_exp_limited = self._apply_exposure_limits(
-            coords_earth, energies_earth, N_uhecr
-        )
+            coords_earth, energies_earth, N_uhecr)
 
         # apply normal sampling to energies based on detector energy uncertainty
         energies_exp_limited = energies_exp_limited * 1e-18  # convert back to EeV
         Eerr = self.data.detector.energy_uncertainty
-        energies_det_exp_limited = np.random.normal(
-            loc=energies_exp_limited, scale=Eerr * energies_exp_limited
-        )
+        energies_det_exp_limited = np.random.normal(loc=energies_exp_limited,
+                                                    scale=Eerr *
+                                                    energies_exp_limited)
 
         # make cuts to energy based on energy threshold
         inds = np.where(energies_det_exp_limited >= self.model.Eth)
@@ -606,7 +616,8 @@ class Analysis:
         # obtain arrival directions at the galactic boundary
         omega_gb = []
         for i, lmbda in enumerate(source_labels):
-            if lmbda == len(varpi):  # from background, sample from sphere uniformly
+            if lmbda == len(
+                    varpi):  # from background, sample from sphere uniformly
                 omega_gb_bg = sample_sphere(1, Nrand)
                 omega_gb.append(omega_gb_bg)
             else:  # from source, sample from vmf
@@ -631,7 +642,8 @@ class Analysis:
 
         if not crpropa:
 
-            raise ImportError("CRPropa3 must be installed to use this functionality")
+            raise ImportError(
+                "CRPropa3 must be installed to use this functionality")
 
         energies_gb = self.Earr * crpropa.EeV  # UHECR energy at gal. boundary
         A, Z = self.nuc_table[self.ptype]
@@ -641,29 +653,29 @@ class Analysis:
 
         # divide energy by Z to get rigidity (to account for composition)
         rigidities_gb = np.array(
-            [np.float64(energy_gb) / Z for energy_gb in energies_gb]
-        )
+            [np.float64(energy_gb) / Z for energy_gb in energies_gb])
 
         # add particle to map container
         # Coordinate transformation is based on making the final map used for sampling
         # to be sampled in the correct coordinates.
-        for i in progress_bar(
-            range(N_uhecr), total=N_uhecr, desc="Adding UHECR to Map Container"
-        ):
+        for i in progress_bar(range(N_uhecr),
+                              total=N_uhecr,
+                              desc="Adding UHECR to Map Container"):
             for j in range(Nrand):
                 c_gal = coords_gb[i][j].galactic
-                map_container.addParticle(
-                    pid, rigidities_gb[i], -(np.pi - c_gal.l.rad), c_gal.b.rad
-                )
+                map_container.addParticle(pid, rigidities_gb[i],
+                                          -(np.pi - c_gal.l.rad), c_gal.b.rad)
 
         # evaluate map used to plot unlensed map using healpy
         NPIX = (
             map_container.getNumberOfPixels()
         )  # hardset to 49152 via CRPropa, correleats to ang. res of 0.92 deg
         crMap_unlensed = np.zeros(NPIX)
-        rigidities = map_container.getEnergies(int(pid))  # actually getting rigidity
+        rigidities = map_container.getEnergies(
+            int(pid))  # actually getting rigidity
         for rigidity in rigidities:
-            crMap_unlensed += map_container.getMap(int(pid), rigidity * crpropa.eV)
+            crMap_unlensed += map_container.getMap(int(pid),
+                                                   rigidity * crpropa.eV)
 
         # apply lens of b-field model to get map of uhecrs at earth
         # full lens to account for turbulent effects
@@ -675,23 +687,23 @@ class Analysis:
         crMap_lensed = np.zeros(NPIX)
         rigidities = map_container.getEnergies(int(pid))
         for rigidity in rigidities:
-            crMap_lensed += map_container.getMap(int(pid), rigidity * crpropa.eV)
+            crMap_lensed += map_container.getMap(int(pid),
+                                                 rigidity * crpropa.eV)
 
         # now generate individual particles from lensed map
         # lon \in [-pi, pi], lats \in [-pi/2, pi/2]
         N = N_uhecr
         _, rigidities_earth, lons_earth, lats_earth = map_container.getRandomParticles(
-            N
-        )
+            N)
 
         # multiply by charge to get back energy from rigidity
         energies_earth = Z * rigidities_earth
 
         # convert to SkyCoord coordinates
         # lon \in [0, 2pi], lats \in [-pi/2, pi/2]
-        coords_earth = SkyCoord(
-            -(np.pi - lons_earth) * u.rad, lats_earth * u.rad, frame="galactic"
-        )
+        coords_earth = SkyCoord(-(np.pi - lons_earth) * u.rad,
+                                lats_earth * u.rad,
+                                frame="galactic")
 
         # for plotting purposes, get lon / lat with larger sample size
         (
@@ -702,18 +714,19 @@ class Analysis:
         ) = map_container.getRandomParticles(int(N_uhecr * Nrand))
 
         omega_nlarge = coord_to_uv(
-            SkyCoord(
-                -(np.pi - lons_nlarge) * u.rad, lats_nlarge * u.rad, frame="galactic"
-            )
-        )
+            SkyCoord(-(np.pi - lons_nlarge) * u.rad,
+                     lats_nlarge * u.rad,
+                     frame="galactic"))
 
         nlarge_params = (Z * rigidities_nlarge, omega_nlarge)
 
         return coords_earth, energies_earth, crMap_unlensed, crMap_lensed, nlarge_params
 
-    def _apply_exposure_limits(
-        self, coords_earth, energies_earth, N_uhecr, count_limit=1e3
-    ):
+    def _apply_exposure_limits(self,
+                               coords_earth,
+                               energies_earth,
+                               N_uhecr,
+                               count_limit=1e3):
         """
         Apply the exposure from the corresponding detector to the coordinates and energies
         obtained at Earth after lensing. This is done via rejection sampling with as with
@@ -746,19 +759,17 @@ class Analysis:
         print("Performing truncations due to exposure...")
         while len(np.nonzero(accepted_rejected_container)) != N:
             # sample from vMF distribution with angular uncertainty
-            omega_det = np.array(
-                [
-                    sample_vMF(omega_true_i, self.data.detector.kappa_d, 1)
-                    for omega_true_i in omega_true
-                ]
-            )
+            omega_det = np.array([
+                sample_vMF(omega_true_i, self.data.detector.kappa_d, 1)
+                for omega_true_i in omega_true
+            ])
             omega_det = omega_det[:, 0, :]  # to collapse the array size
 
             # evaluate probability to detect omega with given exposure using exposure function
             dec_det = np.pi / 2.0 - np.arccos(
-                omega_det[:, 2]
-            )  # shift since arccos \in [0, pi]
-            m_omega = np.array([m_dec(d, self.data.detector.params) for d in dec_det])
+                omega_det[:, 2])  # shift since arccos \in [0, pi]
+            m_omega = np.array(
+                [m_dec(d, self.data.detector.params) for d in dec_det])
             pdet = m_omega / self.data.detector.exposure_max
 
             # sample from bernoulli distribution (2-D categorical distribution)
@@ -767,19 +778,16 @@ class Analysis:
             # get indices where samples != 0 and where container == 0
             # i.e. accepted indices in this loop which are not accounted for in accepted yet
             sample_nonzero_indices = np.argwhere(
-                (accepted_rejected_container == 0) & (samples != 0)
-            )[:, 0]
+                (accepted_rejected_container == 0) & (samples != 0))[:, 0]
 
             # append to locations where accepted_rejected_container == 0
             accepted_rejected_container[sample_nonzero_indices] = samples[
-                sample_nonzero_indices
-            ]
+                sample_nonzero_indices]
 
             # append the evaluated omega_det in this iteration to the same locations where
             # sampling != 0 and container == 0
             omega_det_exp_limited[sample_nonzero_indices, :] = omega_det[
-                sample_nonzero_indices, :
-            ]
+                sample_nonzero_indices, :]
 
             count += 1
             # if count exceeds some truncation limit, break the loop
@@ -788,7 +796,8 @@ class Analysis:
 
         # remove all directions that are stuck (i.e. container == 0), as well as corresp. energies
         container_nonzero_indices = np.nonzero(accepted_rejected_container)[0]
-        omega_det_exp_limited = omega_det_exp_limited[container_nonzero_indices]
+        omega_det_exp_limited = omega_det_exp_limited[
+            container_nonzero_indices]
         energies_exp_limited = energies_earth[container_nonzero_indices]
 
         return omega_det_exp_limited, energies_exp_limited
@@ -835,11 +844,9 @@ class Analysis:
             "zenith_angle": self.data.uhecr.zenith_angle,
         }
 
-        if (
-            self.analysis_type == self.joint_type
-            or self.analysis_type == self.E_loss_type
-            or self.analysis_type == self.gmf_type
-        ):
+        if (self.analysis_type == self.joint_type
+                or self.analysis_type == self.E_loss_type
+                or self.analysis_type == self.gmf_type):
 
             self.fit_input["Edet"] = self.data.uhecr.energy
             self.fit_input["Eth"] = self.model.Eth
@@ -949,11 +956,17 @@ class Analysis:
             fig, ax = plt.subplots()
 
             if isinstance(self.E, (list, np.ndarray)):
-                ax.hist(
-                    self.E, bins=bins, alpha=0.7, label=r"$\tilde{E}$", color=cmap(0.0)
-                )
+                ax.hist(self.E,
+                        bins=bins,
+                        alpha=0.7,
+                        label=r"$\tilde{E}$",
+                        color=cmap(0.0))
             if isinstance(self.Earr, (list, np.ndarray)):
-                ax.hist(self.Earr, bins=bins, alpha=0.7, label=r"$E$", color=cmap(0.5))
+                ax.hist(self.Earr,
+                        bins=bins,
+                        alpha=0.7,
+                        label=r"$E$",
+                        color=cmap(0.5))
 
             ax.hist(
                 self.data.uhecr.energy,

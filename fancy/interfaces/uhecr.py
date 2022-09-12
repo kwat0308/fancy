@@ -12,7 +12,6 @@ from multiprocessing import Pool, cpu_count
 from fancy.interfaces.stan import coord_to_uv, uv_to_coord
 
 from fancy.plotting import AllSkyMap
-from fancy.interfaces.utils import get_nucleartable, fischer_int_eq_P
 
 try:
 
@@ -29,7 +28,6 @@ class Uhecr:
     """
     Stores the data and parameters for UHECRs
     """
-
     def __init__(self):
         """
         Initialise empty container.
@@ -38,7 +36,17 @@ class Uhecr:
         self.properties = None
         self.source_labels = None
 
-        self.nuc_table = get_nucleartable()
+        self.nuc_table = {
+            "p": (1, 1),
+            "H": (1, 1),
+            "He": (4, 2),
+            "Li": (7, 3),
+            "C": (12, 6),
+            "N": (14, 7),
+            "O": (16, 8),
+            "Si": (28, 14),
+            "Fe": (56, 26),
+        }
         self.nthreads = int(0.75 * cpu_count())
 
     def _get_angerr(self):
@@ -55,9 +63,12 @@ class Uhecr:
 
         return np.deg2rad(sig_omega)
 
-    def from_data_file(
-        self, filename, label, ptype="p", gmf_model="JF12", exp_factor=1.0
-    ):
+    def from_data_file(self,
+                       filename,
+                       label,
+                       ptype="p",
+                       gmf_model="JF12",
+                       exp_factor=1.0):
         """
         Define UHECR from data file of original information.
 
@@ -89,7 +100,8 @@ class Uhecr:
             self.A = self._find_area(exp_factor)
 
             self.ptype = ptype
-            self.kappa_gmf = data["kappa_gmf"][gmf_model][ptype]["kappa_gmf"][()]
+            self.kappa_gmf = data["kappa_gmf"][gmf_model][ptype]["kappa_gmf"][(
+            )]
 
     def _get_properties(self):
         """
@@ -130,11 +142,8 @@ class Uhecr:
 
         # decode byte string if uhecr_properties is read from h5 file
         ptype_from_file = uhecr_properties["ptype"]
-        self.ptype = (
-            ptype_from_file.decode("UTF-8")
-            if isinstance(ptype_from_file, bytes)
-            else ptype_from_file
-        )
+        self.ptype = (ptype_from_file.decode("UTF-8") if isinstance(
+            ptype_from_file, bytes) else ptype_from_file)
 
         # Only if simulated UHECRs
         # try:
@@ -169,11 +178,8 @@ class Uhecr:
 
         # decode byte string if uhecr_properties is read from h5 file
         ptype_from_file = uhecr_properties["ptype"]
-        self.ptype = (
-            ptype_from_file.decode("UTF-8")
-            if isinstance(ptype_from_file, bytes)
-            else ptype_from_file
-        )
+        self.ptype = (ptype_from_file.decode("UTF-8") if isinstance(
+            ptype_from_file, bytes) else ptype_from_file)
 
         # Only if simulated UHECRs
         # try:
@@ -229,15 +235,20 @@ class Uhecr:
                     )
                     write_label = False
                 else:
-                    skymap.tissot(
-                        lon, lat, size, npts=30, color=color, lw=0, alpha=0.5
-                    ),
+                    skymap.tissot(lon,
+                                  lat,
+                                  size,
+                                  npts=30,
+                                  color=color,
+                                  lw=0,
+                                  alpha=0.5),
 
         # Otherwise, use the cmap to show the UHECR energy.
         else:
 
             # use colormap for energy
-            norm_E = matplotlib.colors.Normalize(min(self.energy), max(self.energy))
+            norm_E = matplotlib.colors.Normalize(min(self.energy),
+                                                 max(self.energy))
             cmap = plt.cm.get_cmap("viridis", len(self.energy))
 
             write_label = True
@@ -364,7 +375,8 @@ class Uhecr:
                 elif test_date >= period_3_end:
                     period.append(4)
                 else:
-                    print("Error: cannot determine period for year", y, "and day", d)
+                    print("Error: cannot determine period for year", y,
+                          "and day", d)
 
         elif self.label == "TA2015":
             from ..detector.TA2015 import (
@@ -385,7 +397,8 @@ class Uhecr:
                 elif test_date >= period_2_end:
                     period.append(2)
                 else:
-                    print("Error: cannot determine period for year", y, "and day", d)
+                    print("Error: cannot determine period for year", y,
+                          "and day", d)
 
         return period
 
@@ -461,7 +474,9 @@ class Uhecr:
                 distance=D * u.mpc,
             )
         else:
-            return SkyCoord(l=glon * u.degree, b=glat * u.degree, frame="galactic")
+            return SkyCoord(l=glon * u.degree,
+                            b=glat * u.degree,
+                            frame="galactic")
 
     # Anatoli 2022.04.30: The GMF propagation has been moved out from this class
     # because it doesn't really belong here and it makes things more complicated
@@ -632,7 +647,8 @@ class Uhecr:
 
         if not crpropa:
 
-            raise ImportError("CRPropa3 must be installed to use this functionality")
+            raise ImportError(
+                "CRPropa3 must be installed to use this functionality")
 
         uhecr_vector3d = []
         # due to how SkyCoord defines coordinates,
@@ -640,9 +656,8 @@ class Uhecr:
         # lat_vector3d = pi/2 - lat_skycoord
         for coord in self.coord:
             v = crpropa.Vector3d()
-            v.setRThetaPhi(
-                1, np.pi / 2.0 - coord.galactic.b.rad, np.pi - coord.galactic.l.rad
-            )
+            v.setRThetaPhi(1, np.pi / 2.0 - coord.galactic.b.rad,
+                           np.pi - coord.galactic.l.rad)
             uhecr_vector3d.append(v)
         return uhecr_vector3d
 

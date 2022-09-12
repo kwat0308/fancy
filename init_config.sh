@@ -9,9 +9,9 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 printf "Configuring mplstyles...\n"
 python ./fancy/plotting/config_mplstyles.py
 
-# make nuclear tables
-printf "making nuclear tables...\n"
-python ./fancy/interfaces/make_nuclear_table.py
+# # make nuclear tables
+# printf "making nuclear tables...\n"
+# python ./fancy/interfaces/make_nuclear_table.py
 
 # set up GMF model from CRPropa resources
 # add some flag if we want to import GMF model later on
